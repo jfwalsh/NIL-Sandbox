@@ -39,7 +39,7 @@ Try {
 }
 
 # First get login credentials from user, using standard Get-Credential call
-$myCred = Get-Credential   # example user: jwalsh@nil.si
+$myCred = Get-Credential   
 
 # Connect to vCenter 
 Write-Host "Connecting to vCenter Server $myServerName"
