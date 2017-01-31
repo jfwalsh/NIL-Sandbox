@@ -1,0 +1,35 @@
+# Load functions
+Import-Module jw.psm1
+
+# Get a list of VMs from a folder
+$myVMs = Select-FolderandVMs -FolderTitle "Select a Folder" -VmTitle "Select one or more VMs"
+
+# Snapshot all VMs 
+$myVMs | % {$vm = $_; $vm | New-Snapshot -Name "Initial State 5.3.4"  }
+
+# Check all VMs for snapshots
+$myVMs | Get-Snapshot
+
+
+# http://stackoverflow.com/questions/24294446/vmware-powercli-mass-revert-snapshot
+# https://communities.vmware.com/thread/469279?start=0&tstart=0
+# http://pubs.vmware.com/vsphere-65/index.jsp#com.vmware.powercli.cmdletref.doc/Set-VM.html
+# $snap = Get-Snapshot -VM $vm | where {$_.IsCurrent -eq $true}
+
+# Revert array of VMs to current snapshot
+$myVMs | % { $vm = $_; $snap = Get-Snapshot -VM $vm | where {$_.IsCurrent -eq $true} ; Set-VM -VM $vm -Snapshot $snap -Confirm:$false }
+
+
+
+
+
+## Mount ISO to multiple VMs - catch is VMs must be powered on.
+## https://briangordon.wordpress.com/2010/09/09/powershell-mount-iso-to-multiple-vms/
+
+$myISO = "[AWC-004] USM_5.3.5_ISO\AlienVault_USM_UPDATE-FOR-64bits_5.3.5.iso"
+
+$myAUSEVMs | % { $vm = $_; Get-CDDrive $vm | Set-CDDrive -StartConnected:$false -Connected:$true -IsoPath $myISO -Confirm:$false }
+
+
+# Disconnect all network adapters
+$myAUSEVMs | Get-NetworkAdapter | Set-NetworkAdapter -Connected:$false -Confirm:$false
