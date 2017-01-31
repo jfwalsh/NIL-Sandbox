@@ -22,8 +22,25 @@ function Select-VMfromFolder ($Folder, [String] $Title) {
     $vms     # return this
 }
 
-function Select-FolderandVM ([String]$FolderTitle = "Select a Folder", [String]$VmTitle = "Select one or more VMs") {
+function Select-FolderandVM ([String]$FolderTitle, [String]$VmTitle ) {
 	$folder = Select-VmFolder -Title $FolderTitle 
 	Select-VMfromFolder -Folder $folder -Title $VmTitle
 }
 
+## untested below here
+
+
+# Use as RevertVMtoCurrentSnapshot -VM <vm-object>
+
+function RevertVmToCurrentSnapshot ($VM) {
+	$snap = Get-Snapshot -VM $VM | where {$_.IsCurrent -eq $true}
+	if ($snap -ne $null) {
+		Set-VM -VM $VM -Snapshot $snap -Confirm:$false 
+	}
+} 
+
+# Disconnect all network adapters on VM
+# Does not change connected at power on status
+function DisconnectAllVMNetworks ($VM) {
+	$VM | Get-NetworkAdapter | Set-NetworkAdapter -Connected:$false -Confirm:$false
+}
