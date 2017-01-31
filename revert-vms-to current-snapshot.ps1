@@ -1,6 +1,6 @@
 #### Script to revert VMs to current snapshot 
 
-$VersionText = "Version 0.1 (2017-01-31)"
+$VersionText = "Version 0.2 (2017-01-31)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
 
@@ -57,7 +57,7 @@ if ($myVMs.Count -eq 0) {
 } 
 
 # Display current snapshot for all selected VMs
-
+Write-Host ""
 Write-Host "Current Snapshots for selected VMs"
 Write-Host "----------------------------------"
 
@@ -93,7 +93,7 @@ $myVMs | % {				# For each VM
 	} else {
 		$snapName = $snap.Name
 		Write-Host "VM $vmName : Reverting to current snapshot `"$snapName`""
-		Set-VM -VM $vm -Snapshot $snap -Confirm:$false
+		$discard = Set-VM -VM $vm -Snapshot $snap -Confirm:$false
 	}
 }
 
