@@ -31,5 +31,5 @@ $myISO = "[AWC-004] USM_5.3.5_ISO\AlienVault_USM_UPDATE-FOR-64bits_5.3.5.iso"
 $myAUSEVMs | % { $vm = $_; Get-CDDrive $vm | Set-CDDrive -StartConnected:$false -Connected:$true -IsoPath $myISO -Confirm:$false }
 
 
-# Disconnect all network adapters
+# Disconnect all network adapters - VMs powered on.
 $myAUSEVMs | Get-NetworkAdapter | Set-NetworkAdapter -Connected:$false -Confirm:$false
