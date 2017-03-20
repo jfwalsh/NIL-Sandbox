@@ -20,7 +20,7 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 
 #### GLOBALS ####
 
-$myServerName = "awc"  	# Put vCenter IP or hostname here 
+$myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here 
 						# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs
