@@ -58,7 +58,7 @@ $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -Argum
 Write-Host "Connecting to vCenter Server $myServerName"
 $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 
-# Ask user to select a single folder where templates are located
+# Ask user to select a single folder where source VMs are located
 # The "-Type VM" is correct - this is to filter out ESX, datastore, network etc. folders. 
 $mySourceVMFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Source VM Folder"
 
