@@ -1,9 +1,9 @@
 #### Script to clone multiple VMs from the curent snapshot from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the source VMs.
 #### Cloned VMs will have network adjusted to selected WG.
-#### Snapshot to "Initial State" as well.
+#### Snapshot to "Initial State" as well, controlled by $createInitialSnapshot variable
 
-$VersionText = "Version 0.1 (2017-02-07)"
+$VersionText = "Version 0.2 (2017-05-11)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
 
@@ -20,7 +20,7 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 
 #### GLOBALS ####
 
-$myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here 
+$myServerName = "awc"  	# Put vCenter IP or hostname here 
 						# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs
@@ -30,6 +30,9 @@ $WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10"
 
 #### Make sure to stop script if any errors occur - the default is to continue.
 $ErrorActionPreference = "Stop"
+
+#### Setting to control whether a post-clone initial snapshot is required.
+$createInitialSnapshot = $true
 
 #### Connect to vCenter
 
@@ -44,8 +47,8 @@ Try {
 ## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
 
 # vCenter credentials
-$myUsername = "Put Username Here"
-$myPassword = "Put Password Here"  
+$myUsername = "put your username here"
+$myPassword = "put your password here"  
 
 $password = ConvertTo-SecureString $myPassword -AsPlainText -Force   # cannot use password directly - convert to secure string first
 
@@ -133,8 +136,11 @@ $mySourceVMs | % {				# For each VM
 		}
 	}
 	
-	### Create inital state snapshot
-	$discard = New-Snapshot -Name "Initial State" -VM $newVM
+	### Create initial state snapshot
+	### Comment out next line if no initial snapshot is needed
+	if ($createInitialSnapshot) {
+		$discard = New-Snapshot -Name "Initial State" -VM $newVM
+	}
 	
 }
 
