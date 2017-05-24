@@ -23,10 +23,15 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 $myServerName = "awc"  	# Put vCenter IP or hostname here 
 						# awc defined in local hosts file to be 192.168.252.141
 
-# Array of valid portgroups (networks) that can be selected for new VMs
-$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14"
+# Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
+$numberOfWorkGroups = 20
+#### Build array of valid workgroup names, "WG01", WG02", etc.
+# https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
+$WGNames = @()	# initialise to an empty array
+for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG-{0,2:d2}" -f $i) }
 
-
+#### Redundant - direct definition of the array of workgroups
+#$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
 
 #### Make sure to stop script if any errors occur - the default is to continue.
 $ErrorActionPreference = "Stop"
@@ -58,7 +63,7 @@ $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -Argum
 Write-Host "Connecting to vCenter Server $myServerName"
 $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 
-# Ask user to select a single folder where source VMs are located
+# Ask user to select a single folder where templates are located
 # The "-Type VM" is correct - this is to filter out ESX, datastore, network etc. folders. 
 $mySourceVMFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Source VM Folder"
 

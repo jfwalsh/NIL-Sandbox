@@ -1,8 +1,8 @@
-#### Script to deploy templates to folder. 
-#### Bulk deploy a list of templates to a specific folder
+#### Script to deploy multiple templates from a specific folder to a separate target folder. 
+#### Usually the target folder is empty. The VMs will be created with the same name as the template.
 
-$VersionText = "Version 0.1 (2017-01-27)"
-$Author      = "Redacted"
+$VersionText = "Version 0.2 (2017-01-31)"
+$Author      = "John Walsh | jwalsh@alienvault.com"
 
 
 #### http://www.pragmaticio.com/2015/01/vmware-powercli-suppress-vcenter-certificate-warnings/
@@ -19,10 +19,17 @@ $Author      = "Redacted"
 #### GLOBALS ####
 
 $myServerName = "awc"  	# Put vCenter IP or hostname here 
+						# awc defined in local hosts file to be 192.168.252.141
 
-# Array of valid portgroups (networks) that can be selected for new VMs
-$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14"
+# Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
+$numberOfWorkGroups = 20
+#### Build array of valid workgroup names, "WG01", WG02", etc.
+# https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
+$WGNames = @()	# initialise to an empty array
+for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG-{0,2:d2}" -f $i) }
 
+#### Redundant - direct definition of the array of workgroups
+#$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
 
 
 #### Make sure to stop script if any errors occur - the default is to continue.
@@ -39,7 +46,7 @@ Try {
 }
 
 # First get login credentials from user, using standard Get-Credential call
-$myCred = Get-Credential   
+$myCred = Get-Credential -Message "vCenter credentials are required" # vCenter login and password
 
 # Connect to vCenter 
 Write-Host "Connecting to vCenter Server $myServerName"
@@ -49,7 +56,7 @@ $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 # The "-Type VM" is correct - this is to filter out ESX, datastore, network etc. folders. 
 $myTemplateFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Template Folder"
 
-# Ask user to select a target VM folder - must already exist
+# Ask user to select a target VM folder - this must already exist
 $myVmFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Target Folder for deployed VMs"
 $myVmFolderName = $myVmFolder.Name
 
@@ -57,14 +64,14 @@ $myVmFolderName = $myVmFolder.Name
 $myTemplates = $()
 $myTemplates += $myTemplateFolder | Get-Template | ogv -OutputMode Multiple -Title "Select which templates to deploy"
 
-# Ask user to select a datastore
-$myDatastore = Get-Datastore | ogv -OutputMode Single -Title "Select Target Datastore"  
-
 if ($myTemplates.Count -eq 0) {
 	Write-Host "Error: no templates found in folder $myTemplateFolder ... exiting"
 	$discard = $mySession | Disconnect-VIServer -Confirm:$false 
 	Exit
 } 
+
+# Ask user to select a datastore
+$myDatastore = Get-Datastore | ogv -OutputMode Single -Title "Select Target Datastore"  
 
 # Ask user to select an ESX host
 $myVMHost = Get-VMHost | ogv -OutputMode Single -Title "Select an ESX Host"
@@ -75,8 +82,9 @@ $myWorkGroup = $WGNames | ogv -OutputMode Single -Title "Select a Work Group for
 # Deploy templates to target folder
 $myTemplates | % {				# For each template
     $template = $_
-    # Deploy Template to VM
 	$myTemplateName = $template.Name
+    
+	# Deploy Template to VM
 	Write-Host "Creating VM `"$myTemplateName`" in folder `"$myVmFolderName`" ..."
     $newVM = New-VM -Template $template -Name $myTemplateName -Location $myVmFolder -VMHost $myVMHost -Datastore $myDatastore -DiskStorageFormat Thin
 	$myVMName = $newVM.Name
