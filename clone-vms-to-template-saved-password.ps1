@@ -1,9 +1,10 @@
-#### Script to clone multiple VMs from the curent snapshot from a specific folder to a separate target folder. 
+#### Script to clone multiple VMs from the current snapshot from a specific folder to a separate target folder, as templates. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the source VMs.
 #### Cloned VMs will have network adjusted to selected WG.
-#### Snapshot to "Initial State" as well, controlled by $createInitialSnapshot variable
 
-$VersionText = "Version 0.2 (2017-05-11)"
+#### Method: clone VM to template folder, then instead of making a snapshot, use Set-VM to make it a template
+
+$VersionText = "Version 0.1 (2017-05-25)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
 
@@ -28,16 +29,11 @@ $numberOfWorkGroups = 20
 #### Build array of valid workgroup names, "WG01", WG02", etc.
 # https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
 $WGNames = @()	# initialise to an empty array
-for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG{0,2:d2}" -f $i) }
+for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG-{0,2:d2}" -f $i) }
 
-#### Redundant - direct definition of the array of workgroups
-#$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
 
 #### Make sure to stop script if any errors occur - the default is to continue.
 $ErrorActionPreference = "Stop"
-
-#### Setting to control whether a post-clone initial snapshot is required.
-$createInitialSnapshot = $true
 
 #### Connect to vCenter
 
@@ -141,12 +137,9 @@ $mySourceVMs | % {				# For each VM
 		}
 	}
 	
-	### Create initial state snapshot
-	### Comment out next line if no initial snapshot is needed
-	if ($createInitialSnapshot) {
-		$discard = New-Snapshot -Name "Initial State" -VM $newVM
-	}
-	
+	#### Now convert VM to a template
+	Write-Host "Converting $myVMName to a template ..."
+	$discard = Set-VM -VM $newVM -ToTemplate -Confirm:$false
 }
 
 ##########################################################################

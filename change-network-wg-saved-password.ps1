@@ -25,7 +25,7 @@ $numberOfWorkGroups = 20
 #### Build array of valid workgroup names, "WG01", WG02", etc.
 # https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
 $WGNames = @()	# initialise to an empty array
-for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG-{0,2:d2}" -f $i) }
+for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG{0,2:d2}" -f $i) }
 
 #### Redundant - direct definition of the array of workgroups
 #$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
