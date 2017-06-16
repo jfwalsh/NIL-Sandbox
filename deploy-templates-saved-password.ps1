@@ -1,8 +1,51 @@
 #### Script to deploy multiple templates from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the template.
 
-$VersionText = "Version 0.1 (2017-02-06)"
+$VersionText = "Version 0.3 (2017-06-16)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
+
+## TAB size is 4 spaces
+
+## Function definitions
+
+## Define a function to ask user to select a VM folder - enhanced to show full path
+## Requires a connection to vCenter
+
+function Select-VmFolder ([String] $Title){
+    # Get datacenter object, hard coded for DC "AV" in AWC
+	$dataCenter = Get-DataCenter -Name "AV" 
+	# Get top level hidden vm folder called "vm" in selected DC
+	$vmFolder = Get-Folder -Type VM -Location $dataCenter -Name "vm" -NoRecursion
+
+	# Get all user-visible VM folders, this is recursive by default
+	$allVMFolders = Get-Folder -Location $vmFolder | sort
+
+	# Run through all folders, and add new member to each folder object called FullPath which
+	# is a string with the path to the folder, built from folder names and '|' separators.
+	$allVMFolders | % {
+		$folder = $_
+		
+		$f = $folder		# $f starts at current folder and then loops through parent folders
+		$path = $f.Name		# $path is the string showing the full path including any parent folder names
+
+		# While the parent folder is not the root "vm" folder work up and build path string
+		while ($f.Parent -ne $vmFolder) {
+			# Add parent name to front of $path
+			$path = $f.Parent.Name + " | " + $path
+			$f = $f.Parent
+		}
+		# One path has been generated, add it to the $folder object as a NoteProperty
+		Add-Member -inputObject $folder -NotePropertyName "FullPath" -NotePropertyValue $path 
+	}
+
+	# Extract folder name, path and Id and feed to ogv.  We need the Id to retrieve the folder again
+	# as the folder name is ambiguous.
+	$selected = $allVMFolders | Select Name,FullPath,Id | ogv -OutputMode Single -Title $Title
+
+	$selectedFolder = Get-Folder -Id $selected.Id
+
+	$selectedFolder  # return this
+}
 
 
 #### http://www.pragmaticio.com/2015/01/vmware-powercli-suppress-vcenter-certificate-warnings/
@@ -18,8 +61,12 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 
 #### GLOBALS ####
 
-$myServerName = "awc"  	# Put vCenter IP or hostname here 
-						# awc defined in local hosts file to be 192.168.252.141
+# Setting to control whether a post-clone initial snapshot is required.
+$createInitialSnapshot = $true
+
+
+$myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here 
+								# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
 $numberOfWorkGroups = 20
@@ -30,7 +77,6 @@ for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG{0,2:d2}" -f
 
 #### Redundant - direct definition of the array of workgroups
 #$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
-
 
 #### Make sure to stop script if any errors occur - the default is to continue.
 $ErrorActionPreference = "Stop"
@@ -59,12 +105,13 @@ $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -Argum
 Write-Host "Connecting to vCenter Server $myServerName"
 $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 
-# Ask user to select a single folder where templates are located
-# The "-Type VM" is correct - this is to filter out ESX, datastore, network etc. folders. 
-$myTemplateFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Template Folder"
+# Ask user to select a folder where Templates are located
+Write-Host "Please wait while folder information is retrieved ..."
+$myTemplateFolder = Select-VmFolder -Title "Select Template Folder"  # from module jw.psm1
 
 # Ask user to select a target VM folder - this must already exist
-$myVmFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Target Folder for deployed VMs"
+Write-Host "Please wait while folder information is retrieved ..."
+$myVmFolder = Select-VmFolder -Title "Select Target Folder for deployed VMs"
 $myVmFolderName = $myVmFolder.Name
 
 # Ask user to select which templates to deploy
@@ -114,6 +161,11 @@ $myTemplates | % {				# For each template
 				$discard = $myNetworkAdapter | Set-NetworkAdapter -NetworkName $myNewNetworkName -Confirm:$false
 			}
 		}
+	}
+	
+	### Create initial state snapshot
+	if ($createInitialSnapshot) {
+		$discard = New-Snapshot -Name "Initial State" -VM $newVM
 	}
 }
 
