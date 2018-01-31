@@ -93,7 +93,7 @@ Try {
 ## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
 
 # vCenter credentials
-$myUsername = "YOUR USERNAME VOR VCENTER"
+$myUsername = "YOUR USERNAME FOR VCENTER"
 $myPassword = "YOUR PASSWORD FOR VCENTER"  
 
 $password = ConvertTo-SecureString $myPassword -AsPlainText -Force   # cannot use password directly - convert to secure string first
