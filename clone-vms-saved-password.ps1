@@ -62,7 +62,7 @@ $myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here
 						# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
-$numberOfWorkGroups = 20
+$numberOfWorkGroups = 25
 #### Build array of valid workgroup names, "WG01", WG02", etc.
 # https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
 $WGNames = @()	# initialise to an empty array
