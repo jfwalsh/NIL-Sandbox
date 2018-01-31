@@ -1,10 +1,11 @@
 #### Script to deploy multiple templates from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the template.
 
-$VersionText = "Version 0.3 (2017-06-16)"
+$VersionText = "Version 0.5 (2018-01-31)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
-## TAB size is 4 spaces
+## Ver 0.5 - if network is MGMT then map to WGxx-01 to deal with JohnO templates 
+##           also increase number of WG networks to 25    
 
 ## Function definitions
 
@@ -34,7 +35,7 @@ function Select-VmFolder ([String] $Title){
 			$path = $f.Parent.Name + " | " + $path
 			$f = $f.Parent
 		}
-		# One path has been generated, add it to the $folder object as a NoteProperty
+		# Once path has been generated, add it to the $folder object as a NoteProperty
 		Add-Member -inputObject $folder -NotePropertyName "FullPath" -NotePropertyValue $path 
 	}
 
@@ -69,14 +70,12 @@ $myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here
 								# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
-$numberOfWorkGroups = 20
+$numberOfWorkGroups = 25
 #### Build array of valid workgroup names, "WG01", WG02", etc.
 # https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
 $WGNames = @()	# initialise to an empty array
 for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG{0,2:d2}" -f $i) }
 
-#### Redundant - direct definition of the array of workgroups
-#$WGNames = "WG01","WG02","WG03","WG04","WG05","WG06","WG07","WG08","WG09","WG10","WG11","WG12","WG13","WG14","WG15","WG16","WG17","WG18","WG19","WG20"
 
 #### Make sure to stop script if any errors occur - the default is to continue.
 $ErrorActionPreference = "Stop"
@@ -94,20 +93,20 @@ Try {
 ## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
 
 # vCenter credentials
-$myUsername = "Put Username Here"
-$myPassword = "Put Password Here"  
+$myUsername = "YOUR USERNAME VOR VCENTER"
+$myPassword = "YOUR PASSWORD FOR VCENTER"  
 
 $password = ConvertTo-SecureString $myPassword -AsPlainText -Force   # cannot use password directly - convert to secure string first
 
 $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $myUsername, $password
 
 # Connect to vCenter 
-Write-Host "Connecting to vCenter Server $myServerName"
+Write-Host "Connecting to vCenter Server $myServerName as $myUsername"
 $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 
 # Ask user to select a folder where Templates are located
 Write-Host "Please wait while folder information is retrieved ..."
-$myTemplateFolder = Select-VmFolder -Title "Select Template Folder"  # from module jw.psm1
+$myTemplateFolder = Select-VmFolder -Title "Select Template Folder"  
 
 # Ask user to select a target VM folder - this must already exist
 Write-Host "Please wait while folder information is retrieved ..."
@@ -116,7 +115,13 @@ $myVmFolderName = $myVmFolder.Name
 
 # Ask user to select which templates to deploy
 $myTemplates = $()
-$myTemplates += $myTemplateFolder | Get-Template | ogv -OutputMode Multiple -Title "Select which templates to deploy"
+$myTemplates += $myTemplateFolder | Get-Template -NoRecursion | ogv -OutputMode Multiple -Title "Select which templates to deploy"
+
+if ($myTemplates.Count -eq 0) {	# nothing was selected - exit
+	Write-Host "Error: no templates selected ... exiting"
+	$discard = $mySession | Disconnect-VIServer -Confirm:$false 
+	Exit
+}
 
 if ($myTemplates.Count -eq 0) {
 	Write-Host "Error: no templates found in folder $myTemplateFolder ... exiting"
@@ -126,12 +131,27 @@ if ($myTemplates.Count -eq 0) {
 
 # Ask user to select a datastore
 $myDatastore = Get-Datastore | ogv -OutputMode Single -Title "Select Target Datastore"  
+if ($myDataStore -eq $null) {	# nothing was selected - exit
+	Write-Host "Error: no Datastore selected ... exiting"
+	$discard = $mySession | Disconnect-VIServer -Confirm:$false 
+	Exit
+}
 
 # Ask user to select an ESX host
 $myVMHost = Get-VMHost | ogv -OutputMode Single -Title "Select an ESX Host"
+if ($myVMHost -eq $null) {	# nothing was selected - exit
+	Write-Host "Error: no ESX Server selected ... exiting"
+	$discard = $mySession | Disconnect-VIServer -Confirm:$false 
+	Exit
+}
 
 # Ask user to choose a workgroup from defined list
 $myWorkGroup = $WGNames | ogv -OutputMode Single -Title "Select a Work Group for networking"
+if ($myWorkGroup -eq $null) {	# nothing was selected - exit
+	Write-Host "Error: no network selected ... exiting"
+	$discard = $mySession | Disconnect-VIServer -Confirm:$false 
+	Exit
+}
 
 # Deploy templates to target folder
 $myTemplates | % {				# For each template
@@ -155,6 +175,10 @@ $myTemplates | % {				# For each template
 			# Check if current name matches WGnn-nn format
 			# If so, replace WGnn with target workgroup, leaving -nn part the same.
 			# Example: WG01-03 could become WG12-03.
+			# Ver 0.5: If network is MGMT then replace with WGxx-01
+			if ($myOldNetworkName -match 'MGMT') {
+				$myOldNetworkName = 'WG01-01'  # fake the name
+			}
 			if ($myOldNetworkName -match 'WG\d\d-\d\d') {
 				$myNewNetworkName = $myOldNetworkName -replace 'WG\d\d',$myWorkGroup
 				Write-Host "Changing  $myAdapterName on $myVMName from $myOldNetworkName to $myNewNetworkName"

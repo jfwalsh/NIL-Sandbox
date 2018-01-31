@@ -1,9 +1,9 @@
-#### Script to clone multiple VMs from the curent snapshot from a specific folder to a separate target folder. 
+#### Script to clone multiple VMs from the current snapshot from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the source VMs.
 #### Cloned VMs will have network adjusted to selected WG.
 #### Snapshot to "Initial State" as well, controlled by $createInitialSnapshot variable
 
-$VersionText = "Version 0.2 (2017-05-11)"
+$VersionText = "Version 0.4 (2018-01-31)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
 
@@ -18,9 +18,47 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 # AllUsers                                     Ignore                    False
 #
 
+## Define a function to ask user to select a VM folder - enhanced to show full path
+## Requires a connection to vCenter
+
+function Select-VmFolder ([String] $Title){
+    # Get datacenter object, hard coded for DC "AV" in AWC
+	$dataCenter = Get-DataCenter -Name "AV" 
+	# Get top level hidden vm folder called "vm" in selected DC
+	$vmFolder = Get-Folder -Type VM -Location $dataCenter -Name "vm" -NoRecursion
+
+	# Get all user-visible VM folders, this is recursive by default
+	$allVMFolders = Get-Folder -Location $vmFolder | sort
+
+	# Run through all folders, and add new member to each folder object called FullPath which
+	# is a string with the path to the folder, built from folder names and '|' separators.
+	$allVMFolders | % {
+		$folder = $_
+		
+		$f = $folder		# $f starts at current folder and then loops through parent folders
+		$path = $f.Name		# $path is the string showing the full path including any parent folder names
+
+		# While the parent folder is not the root "vm" folder work up and build path string
+		while ($f.Parent -ne $vmFolder) {
+			# Add parent name to front of $path
+			$path = $f.Parent.Name + " | " + $path
+			$f = $f.Parent
+		}
+		# Once path has been generated, add it to the $folder object as a NoteProperty
+		Add-Member -inputObject $folder -NotePropertyName "FullPath" -NotePropertyValue $path 
+	}
+
+	# Extract folder name, path and Id and feed to ogv.  We need the Id to retrieve the folder again
+	# as the folder name is ambiguous.
+	$selected = $allVMFolders | Select Name,FullPath,Id | ogv -OutputMode Single -Title $Title
+
+	$selectedFolder = Get-Folder -Id $selected.Id
+
+	$selectedFolder  # return this
+}
 #### GLOBALS ####
 
-$myServerName = "awc"  	# Put vCenter IP or hostname here 
+$myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here 
 						# awc defined in local hosts file to be 192.168.252.141
 
 # Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
@@ -52,8 +90,8 @@ Try {
 ## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
 
 # vCenter credentials
-$myUsername = "put your username here"
-$myPassword = "put your password here"  
+$myUsername = "YOUR USERNAME VOR VCENTER"
+$myPassword = "YOUR PASSWORD FOR VCENTER" 
 
 $password = ConvertTo-SecureString $myPassword -AsPlainText -Force   # cannot use password directly - convert to secure string first
 
@@ -63,13 +101,13 @@ $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -Argum
 Write-Host "Connecting to vCenter Server $myServerName"
 $mySession = Connect-VIServer -Server $myServerName -Credential $myCred
 
-# Ask user to select a single folder where templates are located
+# Ask user to select a single folder where VMs are located
 # The "-Type VM" is correct - this is to filter out ESX, datastore, network etc. folders. 
-$mySourceVMFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Source VM Folder"
+$mySourceVMFolder = Select-VmFolder -Title "Select Source VM Folder"
 
 
 # Ask user to select a target VM folder - this must already exist
-$myVmFolder = Get-Folder -Type VM | Sort-Object | ogv -OutputMode Single -Title "Select Target Folder for deployed VMs"
+$myVmFolder = Select-VmFolder -Title "Select Target Folder for deployed VMs"
 $myVmFolderName = $myVmFolder.Name
 $myVmFolderMoRef = ($myVmFolder | Get-View).MoRef 
 
@@ -92,7 +130,7 @@ $myVMHost = Get-VMHost | ogv -OutputMode Single -Title "Select an ESX Host"
 # Ask user to choose a workgroup from defined list
 $myWorkGroup = $WGNames | ogv -OutputMode Single -Title "Select a Work Group for networking"
 
-# Clone VMs to target folder using current snapahot
+# Clone VMs to target folder using current snapshot
 $mySourceVMs | % {				# For each VM
     $sourceVM = $_
 	$mySourceVMName = $sourceVM.Name
@@ -116,7 +154,7 @@ $mySourceVMs | % {				# For each VM
 	$cloneSpec.Location.Transform = [Vmware.Vim.VirtualMachineRelocateTransformation]::sparse
 	
 	
-    $newVMMoRef = $mySourceVMView.CloneVM(  $myVmFolderMoRef, $mySourceVMName, $cloneSpec)
+    $newVMMoRef = $mySourceVMView.CloneVM($myVmFolderMoRef, $mySourceVMName, $cloneSpec)
 	$newVM = Get-VM -Id ($newVMMoRef)
 	$myVMName = $newVM.Name
 	
@@ -133,6 +171,10 @@ $mySourceVMs | % {				# For each VM
 			# Check if current name matches WGnn-nn format
 			# If so, replace WGnn with target workgroup, leaving -nn part the same.
 			# Example: WG01-03 could become WG12-03.
+			# Ver 0.5: If network is MGMT then replace with WGxx-01
+			if ($myOldNetworkName -match 'MGMT') {
+				$myOldNetworkName = 'WG01-01'  # fake the name so it gets mapped
+			}
 			if ($myOldNetworkName -match 'WG\d\d-\d\d') {
 				$myNewNetworkName = $myOldNetworkName -replace 'WG\d\d',$myWorkGroup
 				Write-Host "Changing  $myAdapterName on $myVMName from $myOldNetworkName to $myNewNetworkName"
@@ -144,6 +186,7 @@ $mySourceVMs | % {				# For each VM
 	### Create initial state snapshot
 	### Comment out next line if no initial snapshot is needed
 	if ($createInitialSnapshot) {
+		Write-Host "Creating snapshot Initial State on $myVMName"
 		$discard = New-Snapshot -Name "Initial State" -VM $newVM
 	}
 	
