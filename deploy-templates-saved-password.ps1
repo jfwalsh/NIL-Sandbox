@@ -1,20 +1,42 @@
 #### Script to deploy multiple templates from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the template.
+#### https://github.com/jfwalsh/NIL-Sandbox/blob/master/deploy-templates-saved-password.ps1
 
-$VersionText = "Version 0.5 (2018-01-31)"
+$VersionText = "Version 0.6 (2018-02-20)"
 $Author      = "John Walsh | jwalsh@alienvault.com"
 
-## Ver 0.5 - if network is MGMT then map to WGxx-01 to deal with JohnO templates 
+## Ver 0.5 - if network is MGMT then map to WGxx-01 (so it get's mapped to chosen network) 
 ##           also increase number of WG networks to 25    
+## Ver 0.6 - Move all globals to top. Can choose MGMT as target network.
 
-## Function definitions
+#### GLOBALS ####
+
+#### Make sure to stop script if any errors occur - the default is to continue.
+$ErrorActionPreference = "Stop"
+
+# Setting to control whether a post-clone initial snapshot is required.
+$DataCenterName = "AV"  				# Name of Datacenter in vCenter
+$myServerName 	= "awc.nil.com"  		# Put vCenter FQDN or IP here
+$numberOfWorkGroups 	= 25 			# How many workgroups? WG-01 to WG-nn
+$additionalWorkGroups 	= @("MGMT")   	# Add any additional networks that might be used here 
+
+$createInitialSnapshot 	= $true 		# decide whether to create an initial snapshot 
+
+## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
+# vCenter credentials
+$myUsername = "PUT YOUR VCENTER USERNAME HERE"
+$myPassword = "PUT YOUR VCENTER PASSWORD HERE" 
+  
+  
+
+  ## Function definitions
 
 ## Define a function to ask user to select a VM folder - enhanced to show full path
 ## Requires a connection to vCenter
 
 function Select-VmFolder ([String] $Title){
-    # Get datacenter object, hard coded for DC "AV" in AWC
-	$dataCenter = Get-DataCenter -Name "AV" 
+    # Get datacenter object
+	$dataCenter = Get-DataCenter -Name $DataCenterName 
 	# Get top level hidden vm folder called "vm" in selected DC
 	$vmFolder = Get-Folder -Type VM -Location $dataCenter -Name "vm" -NoRecursion
 
@@ -48,7 +70,7 @@ function Select-VmFolder ([String] $Title){
 	$selectedFolder  # return this
 }
 
-
+# If you get a lot of warnings about deprecated stuff maybe try the following in your PowerCLI environment:
 #### http://www.pragmaticio.com/2015/01/vmware-powercli-suppress-vcenter-certificate-warnings/
 # PowerCLI> Set-PowerCLIConfiguration -InvalidCertificateAction ignore -DisplayDeprecationWarnings:$false -confirm:$false
 #
@@ -60,25 +82,12 @@ function Select-VmFolder ([String] $Title){
 # AllUsers                                     Ignore                    False
 #
 
-#### GLOBALS ####
-
-# Setting to control whether a post-clone initial snapshot is required.
-$createInitialSnapshot = $true
-
-
-$myServerName = "awc.nil.com"  	# Put vCenter IP or hostname here 
-								# awc defined in local hosts file to be 192.168.252.141
-
-# Array of valid portgroups (networks) that can be selected for new VMs - change this as needed
-$numberOfWorkGroups = 25
 #### Build array of valid workgroup names, "WG01", WG02", etc.
 # https://social.technet.microsoft.com/wiki/contents/articles/7855.powershell-using-the-f-format-operator.aspx
 $WGNames = @()	# initialise to an empty array
+$WGNames += $additionalWorkGroups
 for ( $i=1 ;  $i -le $numberOfWorkGroups ; $i++ ) { $WGNames += ("WG{0,2:d2}" -f $i) }
 
-
-#### Make sure to stop script if any errors occur - the default is to continue.
-$ErrorActionPreference = "Stop"
 
 #### Connect to vCenter
 
@@ -90,14 +99,8 @@ Try {
 	Write-Host "Looks like there was no existing connection - continuing."
 }
 
-## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
-
-# vCenter credentials
-$myUsername = "YOUR USERNAME FOR VCENTER"
-$myPassword = "YOUR PASSWORD FOR VCENTER"  
-
+# Create VC credential object with username and password
 $password = ConvertTo-SecureString $myPassword -AsPlainText -Force   # cannot use password directly - convert to secure string first
-
 $myCred =  New-Object -TypeName System.Management.Automation.PSCredential -ArgumentList $myUsername, $password
 
 # Connect to vCenter 
@@ -175,14 +178,21 @@ $myTemplates | % {				# For each template
 			# Check if current name matches WGnn-nn format
 			# If so, replace WGnn with target workgroup, leaving -nn part the same.
 			# Example: WG01-03 could become WG12-03.
-			# Ver 0.5: If network is MGMT then replace with WGxx-01
-			if ($myOldNetworkName -match 'MGMT') {
-				$myOldNetworkName = 'WG01-01'  # fake the name
-			}
-			if ($myOldNetworkName -match 'WG\d\d-\d\d') {
-				$myNewNetworkName = $myOldNetworkName -replace 'WG\d\d',$myWorkGroup
-				Write-Host "Changing  $myAdapterName on $myVMName from $myOldNetworkName to $myNewNetworkName"
-				$discard = $myNetworkAdapter | Set-NetworkAdapter -NetworkName $myNewNetworkName -Confirm:$false
+			# Ver 0.5: If old network is MGMT (and new network is not) then replace with WGxx-01
+			if ($myWorkGroup -ne $myOldNetworkName) {
+				if ($myOldNetworkName -match 'MGMT') {  # FIXME: what if other names possible?
+					$myOldNetworkName = 'WG01-01'  # fake the name
+				}
+				# Okay, so old and new network names are different - is the new network MGMT?
+				if ($myWorkGroup -eq "MGMT") { 			# more FIXME, ditto
+					$myNewNetworkName = $myWorkGroup
+					Write-Host "Changing $myAdapterName on $myVMName from $myOldNetworkName to $myNewNetworkName"
+					$discard = $myNetworkAdapter | Set-NetworkAdapter -NetworkName $myNewNetworkName -Confirm:$false
+				} elseif ($myOldNetworkName -match 'WG\d\d-\d\d') {
+					$myNewNetworkName = $myOldNetworkName -replace 'WG\d\d',$myWorkGroup
+					Write-Host "Changing  $myAdapterName on $myVMName from $myOldNetworkName to $myNewNetworkName"
+					$discard = $myNetworkAdapter | Set-NetworkAdapter -NetworkName $myNewNetworkName -Confirm:$false
+				}
 			}
 		}
 	}
@@ -208,6 +218,12 @@ Write-Host "Script finished ... "
 #### That's all, folks!
 ####
 ##########################################################################
+
+
+
+
+
+
 
 
 
