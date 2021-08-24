@@ -1,13 +1,31 @@
+## deploy-templates-saved-password.ps1
+##
 #### Script to deploy multiple templates from a specific folder to a separate target folder. 
 #### Usually the target folder is empty. The VMs will be created with the same name as the template.
 #### https://github.com/jfwalsh/NIL-Sandbox/blob/master/deploy-templates-saved-password.ps1
 
-$VersionText = "Version 0.6 (2018-02-20)"
-$Author      = "John Walsh | jwalsh@alienvault.com"
+$VersionText = "Version 1.0 (2021-08-24)"
+$Author      = "John Walsh | jwalsh@att.com"
 
-## Ver 0.5 - if network is MGMT then map to WGxx-01 (so it get's mapped to chosen network) 
+## Ver 0.5 - if network is MGMT then map to WGxx-01 to deal with JohnO templates 
 ##           also increase number of WG networks to 25    
-## Ver 0.6 - Move all globals to top. Can choose MGMT as target network.
+## Ver 0.6 - Move all globals to top
+## Ver 0.7 - PowerCLI now in Powershell, so need to check if VMware-PowerCLI module is loaded
+## Ver 0.8 - New-VM hangs for bigger VMs, try running it async and monitor with Wait-Task
+## Ver 1.0   Refactor code to avoid Wait-Task which seems to hand, replaced it with a loop
+##           that pulls tasks with Get-Task every 15 seconds and checks the task status 
+##           to see if it has completed.
+##           Running New-VM without -RunAsync seems to do an internal Wait-Task so we need to
+##           use -TunaAsync and avoid Wait-Task.
+
+#### Might need this in the environment to avoid timeouts ...
+# Set-PowerCLIConfiguration -WebOperationTimeoutSeconds 3600 -Scope User
+
+#### Load PowerCLI Module if not yet loaded ####
+##     added in 0.7                           ##
+if ((Get-Module -Name VMware.PowerCLI) -eq $null) {
+	Import-Module VMware.PowerCLI
+}
 
 #### GLOBALS ####
 
@@ -15,7 +33,7 @@ $Author      = "John Walsh | jwalsh@alienvault.com"
 $ErrorActionPreference = "Stop"
 
 # Setting to control whether a post-clone initial snapshot is required.
-$DataCenterName = "AV"  				# Name of Datacenter in vCenter
+$DataCenterName = "AlienVault Sandbox"  				# Name of Datacenter in vCenter
 $myServerName 	= "awc.nil.com"  		# Put vCenter FQDN or IP here
 $numberOfWorkGroups 	= 25 			# How many workgroups? WG-01 to WG-nn
 $additionalWorkGroups 	= @("MGMT")   	# Add any additional networks that might be used here 
@@ -24,9 +42,8 @@ $createInitialSnapshot 	= $true 		# decide whether to create an initial snapshot
 
 ## WARNING - putting user credentials in this file is a security hazard. Ensure nobody else can read this file
 # vCenter credentials
-$myUsername = "PUT YOUR VCENTER USERNAME HERE"
-$myPassword = "PUT YOUR VCENTER PASSWORD HERE" 
-  
+$myUsername = "PUT YOUR VC USERNAME HERE"
+$myPassword = "PUT YOUR VC PASSWORD HERE"  
   
 
   ## Function definitions
@@ -163,7 +180,76 @@ $myTemplates | % {				# For each template
     
 	# Deploy Template to VM
 	Write-Host "Creating VM `"$myTemplateName`" in folder `"$myVmFolderName`" ..."
-    $newVM = New-VM -Template $template -Name $myTemplateName -Location $myVmFolder -VMHost $myVMHost -Datastore $myDatastore -DiskStorageFormat Thin
+	## Debug
+	Write-Host "executing: New-VM -Template $template -Name $myTemplateName -Location $myVmFolder -VMHost $myVMHost -Datastore $myDatastore -DiskStorageFormat Thin"
+	##
+	try {
+		$myTask = New-VM -Template $template -Name $myTemplateName -Location $myVmFolder -VMHost $myVMHost -Datastore $myDatastore -DiskStorageFormat Thin -RunAsync
+		$myTaskId = $myTask.Id
+		
+		##Wait-Task -Task $myTask  # Avoid weird timeout issues with New-VM  - but this can hang also.  Looks like a problem in comms to VC?
+		##
+		## Maybe use Get-Task in a loop and wait until there are no more tasks running? Rather than waiting for this task to comlete?
+		##
+		
+		# Monitor the running tasks every 15 seconds. If there are no tasks running, assume the New-VM task is complete.
+		# If tasks are found, look to see if any have the same task ID as the New-VM task. If yes, check state for success, if not keep waiting.
+		# If no tasks are found assume success (might be iffy?)
+		$taskRunning = $true
+		while ($taskRunning) {
+			write-host "Getting tasks..." 	#DEBUG
+			$allTasks = Get-Task
+			$allTasks  						#DEBUG
+			write-host "" 					#DEBUG
+			$taskCount = $allTasks.Count 
+ 			if ($taskCount -eq 0) {
+				write-host "No tasks found"  #DEBUG
+				$taskRunning = $false		 #Is this safe ??
+			} else {
+				write-host "Found $taskCount tasks"
+				write-host "Looking for a task with ID $myTaskId" #DEBUG
+			    $tasklist = @()
+				$tasklist += $allTasks | ? { $_.Id -eq $myTaskId }
+				
+				if ($tasklist.Count -eq 0) {
+					Write-Host "No match found for $myTaskId, assuming task has completed ... Continuing script"
+					$taskRunning = $false 
+				} else {
+					# We found our task, now check its state
+					# Assume that there is one task, which we can reference as index 0
+					$task = $tasklist[0]
+					$state = $task.State
+					
+					if ($state -eq "Success") {
+						# If the state is Success we can continue, by marking $taskRunning as $false
+						Write-Host "State = Success ... Continuing script."  #DEBUG
+						$taskRunning = $false
+					} elseif ($state -eq "error") {
+						Write-Host "Error encountered copying template, exiting ..."
+						Exit
+					} else {  # Keep waiting
+						$taskRunning = $true
+						write-host "Task State: $state"
+						$percentComplete = $task.percentComplete
+						write-host "Percent Complete: $percentComplete"
+					}
+				}
+			}
+			if ($taskRunning) {
+				Start-Sleep -s 15
+			}
+		}
+		
+		# Okay, find the VM by name, now that the New-VM task is complete
+		$findVM = @()
+		$findVM += Get-VM -Location $myVmFolder -Name $myTemplateName
+		$newVM = $findVM[0]
+		
+				
+		Write-Host "Created new VM: $newVM"
+	} catch {
+		Write-Error $_
+	}
 	$myVMName = $newVM.Name
 	# Adjust networks on new VM 
 	# Get array of network adapters from newly created VM
@@ -199,7 +285,14 @@ $myTemplates | % {				# For each template
 	
 	### Create initial state snapshot
 	if ($createInitialSnapshot) {
-		$discard = New-Snapshot -Name "Initial State" -VM $newVM
+		Write-Host "Creating initial snapshot for $myVMName"
+#		$discard = New-Snapshot -Name "Initial State" -VM $newVM
+        try {
+			$snap = New-Snapshot -Name "Initial State" -VM $newVM
+			Write-Host "Created snapshot: $snap"
+		} catch {
+			Write-Error $_
+		}
 	}
 }
 
@@ -218,16 +311,3 @@ Write-Host "Script finished ... "
 #### That's all, folks!
 ####
 ##########################################################################
-
-
-
-
-
-
-
-
-
-
-
-
-
